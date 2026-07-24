@@ -8,7 +8,7 @@ const ARCHIVE_KEY = "anime-timetable-archive-v1";
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 const API_BASE = "https://cal.syoboi.jp/json.php";
 
-const state = { shows: [], checked: new Set(), dayFilter: "all" };
+const state = { shows: [], checked: new Set(), dayFilter: "thisWeek", thisWeekRange: null, lastWeekRange: null };
 
 const els = {
   headerSubtitle: document.getElementById("header-subtitle"),
@@ -69,6 +69,11 @@ function addDays(dateStr, n) {
   const d = new Date(`${dateStr}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+function mondayOf(dateStr) {
+  const daysSinceMonday = (jstWeekdayIdx(dateStr) + 6) % 7; // 月=0 .. 日=6 に読み替え
+  return addDays(dateStr, -daysSinceMonday);
 }
 
 function fmtMD(dateStr) {
@@ -158,6 +163,10 @@ async function loadTimetable() {
     const rangeEnd = addDays(today, 6); // 本日を含む7日間(本日+6日先まで)
     const fetchDays = 8; // 余裕を持って取得し、あとで rangeEnd までに絞り込む
 
+    const thisMonday = mondayOf(today);
+    state.thisWeekRange = [thisMonday, addDays(thisMonday, 6)];
+    state.lastWeekRange = [addDays(thisMonday, -7), addDays(thisMonday, -1)];
+
     const todayLabel = `${fmtMD(today)}(${WEEKDAY_JA[dow]})`;
     const rangeEndLabel = `${fmtMD(rangeEnd)}(${WEEKDAY_JA[jstWeekdayIdx(rangeEnd)]})`;
 
@@ -243,7 +252,8 @@ function buildDayFilter() {
   const days = Array.from(daySet).sort();
 
   els.dayFilter.innerHTML = "";
-  els.dayFilter.appendChild(makeDayChip("all", "すべて"));
+  els.dayFilter.appendChild(makeDayChip("thisWeek", "今週"));
+  els.dayFilter.appendChild(makeDayChip("lastWeek", "先週"));
   days.forEach((d) => {
     const idx = jstWeekdayIdx(d);
     els.dayFilter.appendChild(makeDayChip(d, `${fmtMD(d)}(${WEEKDAY_JA[idx]})`));
@@ -275,11 +285,17 @@ function renderEmpty() {
   els.showList.innerHTML = `<div class="empty-state">対象チャンネルの番組データがまだ見つかりませんでした。<br>しょぼいカレンダー側の登録状況によっては、放送が近づくと表示されるようになります。</div>`;
 }
 
+function showMatchesFilter(show) {
+  if (state.dayFilter === "thisWeek" || state.dayFilter === "lastWeek") {
+    const range = state.dayFilter === "thisWeek" ? state.thisWeekRange : state.lastWeekRange;
+    if (!range) return false;
+    return show.slots.some((slot) => slot.dateStr >= range[0] && slot.dateStr <= range[1]);
+  }
+  return show.slots.some((slot) => slot.dateStr === state.dayFilter);
+}
+
 function renderList() {
-  const filtered =
-    state.dayFilter === "all"
-      ? state.shows
-      : state.shows.filter((s) => s.slots.some((slot) => slot.dateStr === state.dayFilter));
+  const filtered = state.shows.filter(showMatchesFilter);
 
   els.showList.innerHTML = "";
   if (filtered.length === 0) {
