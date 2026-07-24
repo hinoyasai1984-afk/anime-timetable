@@ -135,16 +135,12 @@ async function loadTimetable() {
   try {
     const today = jstDateParts();
     const dow = jstWeekdayIdx(today);
-    const daysUntilSunday = dow === 0 ? 0 : 7 - dow;
-    const sunday = addDays(today, daysUntilSunday);
-    const fetchDays = Math.min(32, daysUntilSunday + 2);
+    const rangeEnd = addDays(today, 6); // 本日を含む7日間(本日+6日先まで)
+    const fetchDays = 8; // 余裕を持って取得し、あとで rangeEnd までに絞り込む
 
     const todayLabel = `${fmtMD(today)}(${WEEKDAY_JA[dow]})`;
-    const sundayLabel = `${fmtMD(sunday)}(日)`;
-    els.headerSubtitle.textContent =
-      dow === 0
-        ? `本日 ${todayLabel} の放送予定。地上波(関東)とBSの主要チャンネルが対象です。`
-        : `${todayLabel}〜${sundayLabel}の放送予定。地上波(関東)とBSの主要チャンネルが対象です。`;
+    const rangeEndLabel = `${fmtMD(rangeEnd)}(${WEEKDAY_JA[jstWeekdayIdx(rangeEnd)]})`;
+    els.headerSubtitle.textContent = `${todayLabel}〜${rangeEndLabel}(6日先まで)の放送予定。地上波(関東)とBSの主要チャンネルが対象です。`;
 
     const chidParam = WHITELIST_CH_IDS.join(",");
     const progData = await jsonp(`${API_BASE}?Req=ProgramByDate&Start=${today}&Days=${fetchDays}&ChID=${chidParam}`);
@@ -152,7 +148,7 @@ async function loadTimetable() {
 
     const programs = rawPrograms
       .map((p) => ({ ...p, ...jstInfo(Number(p.StTime)) }))
-      .filter((p) => p.dateStr <= sunday);
+      .filter((p) => p.dateStr <= rangeEnd);
 
     if (programs.length === 0) {
       state.shows = [];
