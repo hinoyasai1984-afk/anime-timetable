@@ -1,6 +1,10 @@
 // 地上波(関東)+BSの主要チャンネル。しょぼいカレンダーのChIDに対応。
 const WHITELIST_CH_IDS = [1, 2, 3, 4, 5, 6, 7, 8, 13, 14, 19, 72, 100, 15, 16, 17, 18, 71, 128, 129, 179, 197, 285];
 const STORAGE_KEY = "anime-timetable-checked-v1";
+// 取得できた放送データを恒久的に蓄積するアーカイブ。しょぼいカレンダー側のAPIは「今日以降」しか
+// 返さない仕様のため、一度表示した過去日を後から取り直すことができない。そこで取得の都度ここに
+// 追記していき、明示的な削除操作をしない限り古いデータも消さずに残す(週次などの自動間引きはしない)。
+const ARCHIVE_KEY = "anime-timetable-archive-v1";
 const WEEKDAY_JA = ["日", "月", "火", "水", "木", "金", "土"];
 const API_BASE = "https://cal.syoboi.jp/json.php";
 
@@ -122,11 +126,27 @@ function groupByTitle(programs, titleMap) {
   const shows = [];
   byTid.forEach((slots, tid) => {
     slots.sort((a, b) => Number(a.StTime) - Number(b.StTime));
-    const title = (titleMap[tid] && titleMap[tid].Title) || `(不明な作品 TID:${tid})`;
+    const title = titleMap[tid] || `(不明な作品 TID:${tid})`;
     shows.push({ tid, title, slots, firstStTime: Number(slots[0].StTime) });
   });
   shows.sort((a, b) => a.firstStTime - b.firstStTime);
   return shows;
+}
+
+// ---- アーカイブ(過去分の永続保存) ----
+
+function loadArchive() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ARCHIVE_KEY) || "null");
+    if (saved && saved.programs && saved.titles) return saved;
+  } catch {
+    /* 壊れていたら空から作り直す */
+  }
+  return { programs: {}, titles: {} };
+}
+
+function saveArchive(archive) {
+  localStorage.setItem(ARCHIVE_KEY, JSON.stringify(archive));
 }
 
 async function loadTimetable() {
@@ -140,17 +160,29 @@ async function loadTimetable() {
 
     const todayLabel = `${fmtMD(today)}(${WEEKDAY_JA[dow]})`;
     const rangeEndLabel = `${fmtMD(rangeEnd)}(${WEEKDAY_JA[jstWeekdayIdx(rangeEnd)]})`;
-    els.headerSubtitle.textContent = `${todayLabel}〜${rangeEndLabel}(6日先まで)の放送予定。地上波(関東)とBSの主要チャンネルが対象です。`;
 
     const chidParam = WHITELIST_CH_IDS.join(",");
     const progData = await jsonp(`${API_BASE}?Req=ProgramByDate&Start=${today}&Days=${fetchDays}&ChID=${chidParam}`);
     const rawPrograms = Array.isArray(progData) ? [] : Object.values(progData.Programs || {});
 
-    const programs = rawPrograms
+    const freshPrograms = rawPrograms
       .map((p) => ({ ...p, ...jstInfo(Number(p.StTime)) }))
       .filter((p) => p.dateStr <= rangeEnd);
 
-    if (programs.length === 0) {
+    // 今回取得できた分をアーカイブに追記(PIDで重複排除)。既存の過去分は消さない。
+    const archive = loadArchive();
+    freshPrograms.forEach((p) => {
+      archive.programs[p.PID] = p;
+    });
+
+    const allPrograms = Object.values(archive.programs);
+    const earliestDate = allPrograms.reduce((min, p) => (min === null || p.dateStr < min ? p.dateStr : min), null);
+
+    els.headerSubtitle.textContent = earliestDate && earliestDate < today
+      ? `${fmtMD(earliestDate)}(${WEEKDAY_JA[jstWeekdayIdx(earliestDate)]})から蓄積した過去分に加え、${todayLabel}〜${rangeEndLabel}(6日先まで)の放送予定を表示します。地上波(関東)とBSの主要チャンネルが対象です。`
+      : `${todayLabel}〜${rangeEndLabel}(6日先まで)の放送予定。地上波(関東)とBSの主要チャンネルが対象です。表示した分はこの端末に蓄積され、過去分として残り続けます。`;
+
+    if (allPrograms.length === 0) {
       state.shows = [];
       renderEmpty();
       els.dayFilter.innerHTML = "";
@@ -158,15 +190,22 @@ async function loadTimetable() {
       return;
     }
 
-    const tids = Array.from(new Set(programs.map((p) => p.TID)));
-    const titleMap = await fetchTitles(tids);
+    const missingTids = Array.from(new Set(allPrograms.map((p) => p.TID))).filter((tid) => !(tid in archive.titles));
+    if (missingTids.length > 0) {
+      const fetched = await fetchTitles(missingTids);
+      missingTids.forEach((tid) => {
+        archive.titles[tid] = (fetched[tid] && fetched[tid].Title) || `(不明な作品 TID:${tid})`;
+      });
+    }
 
-    state.shows = groupByTitle(programs, titleMap);
+    saveArchive(archive);
+
+    state.shows = groupByTitle(allPrograms, archive.titles);
     loadCheckedFromStorage();
     sortShowsByChecked();
     buildDayFilter();
     renderList();
-    els.status.textContent = `対象 ${state.shows.length}作品 / ${programs.length}件の放送　最終更新: ${new Date().toLocaleString("ja-JP")}`;
+    els.status.textContent = `対象 ${state.shows.length}作品 / ${allPrograms.length}件の放送(累積)　最終更新: ${new Date().toLocaleString("ja-JP")}`;
   } catch (err) {
     els.status.textContent = `取得に失敗しました: ${err.message}`;
   }
