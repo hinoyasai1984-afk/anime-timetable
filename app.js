@@ -17,6 +17,7 @@ const els = {
   status: document.getElementById("status-line"),
   showList: document.getElementById("show-list"),
   themeToggle: document.getElementById("theme-toggle"),
+  shareLink: document.getElementById("share-link"),
 };
 
 // ---- JSONP (しょぼいカレンダーのAPIはCORS非対応のため script タグ経由で取得) ----
@@ -334,6 +335,37 @@ function renderList() {
   });
 }
 
+// ---- リンク共有 ----
+
+function copyPageLink(btn) {
+  const url = window.location.href;
+  const onDone = () => {
+    const original = btn.textContent;
+    btn.textContent = "✓";
+    btn.classList.add("is-copied");
+    setTimeout(() => {
+      btn.textContent = original;
+      btn.classList.remove("is-copied");
+    }, 1600);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(onDone).catch(() => fallbackCopy(url, onDone));
+  } else {
+    fallbackCopy(url, onDone);
+  }
+}
+function fallbackCopy(text, onDone) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); } catch (e) { /* clipboard unavailable */ }
+  document.body.removeChild(ta);
+  onDone();
+}
+
 // ---- イベント ----
 
 els.updateButton.addEventListener("click", () => {
@@ -348,5 +380,7 @@ els.themeToggle.addEventListener("click", () => {
   else if (current === "light") root.removeAttribute("data-theme");
   else root.setAttribute("data-theme", "dark");
 });
+
+els.shareLink.addEventListener("click", () => copyPageLink(els.shareLink));
 
 loadTimetable();

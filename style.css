@@ -77,7 +77,8 @@ html, body {
 }
 .app-header h1 { font-size: 22px; margin: 0 0 4px; }
 .subtitle { margin: 0; color: var(--text-secondary); font-size: 14px; max-width: 560px; }
-.theme-toggle {
+.header-actions { display: flex; gap: 8px; flex: none; }
+.theme-toggle, .share-link-btn {
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -88,7 +89,8 @@ html, body {
   color: var(--text-primary);
   flex: none;
 }
-.theme-toggle:hover { background: var(--gridline); }
+.theme-toggle:hover, .share-link-btn:hover { background: var(--gridline); }
+.share-link-btn.is-copied { color: var(--accent); }
 
 .toolbar {
   max-width: 880px;
